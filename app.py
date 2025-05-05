@@ -30,7 +30,7 @@ def get_auth_header(token=None, username=None, password=None):
 
 # === Étape 2 : Récupérer tous les utilisateurs ===
 def get_users(headers):
-    url = ""https://togo.dhis2.org/dhis/api/users.json"
+    url = "https://togo.dhis2.org/dhis/api/users.json"
     params = {"paging": "false", "fields": "id,username,name,organisationUnits[id]"}
     response = requests.get(url, headers=headers, params=params)
     
