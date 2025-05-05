@@ -1,0 +1,3 @@
+# app.py
+# Streamlit app pour détecter les doublons DHIS2
+# Le vrai contenu doit être inséré ici...
