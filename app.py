@@ -9,7 +9,7 @@ import base64
 st.set_page_config(page_title="Liste des utilisateurs DHIS2", layout="wide")
 
 # URL DHIS2 préconfigurée
-DHIS2_URL = "https://ton_instance.dhis2.org/dhis"  # À modifier avec l'URL de ton instance
+DHIS2_URL = "togo.dhis2.org/dhis/dhis"  # À modifier avec l'URL de ton instance
 
 st.sidebar.header("🔐 Connexion à DHIS2")
 
