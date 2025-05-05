@@ -1,88 +1,73 @@
-# -*- coding: utf-8 -*-
-# Streamlit – Liste complète des utilisateurs DHIS2 avec identification des doublons
-
 import streamlit as st
 import pandas as pd
 import requests
 import base64
 
-st.set_page_config(page_title="Liste des utilisateurs DHIS2", layout="wide")
+st.set_page_config(page_title="Liste des utilisateurs et détection des doublons", layout="wide")
+st.title("👥 Liste des utilisateurs DHIS2 et détection des doublons")
 
-# URL DHIS2 préconfigurée
-DHIS2_URL = "togo.dhis2.org/dhis/dhis"  # À modifier avec l'URL de ton instance
+# === Paramètres fixes ===
+DHIS2_URL = "https://togo.dhis2.org/dhis"
 
-st.sidebar.header("🔐 Connexion à DHIS2")
+# === Authentification via PAT ou identifiants ===
+st.sidebar.header("🔐 Authentification")
+use_pat = st.sidebar.checkbox("Se connecter avec un token personnel (PAT)", value=True)
 
-auth_method = st.sidebar.radio("Méthode d’authentification", ["Nom d'utilisateur / Mot de passe", "Token personnel (PAT)"])
-
-if auth_method == "Nom d'utilisateur / Mot de passe":
+if use_pat:
+    pat = st.sidebar.text_input("Token personnel (PAT)", type="password")
+    headers = {"Authorization": f"ApiToken {pat}"} if pat else None
+else:
     username = st.sidebar.text_input("Nom d'utilisateur")
     password = st.sidebar.text_input("Mot de passe", type="password")
-    token = None
-else:
-    token = st.sidebar.text_input("Token personnel (PAT)", type="password")
-    username = None
-    password = None
-
-@st.cache_data(show_spinner=False)
-def get_auth_header(username=None, password=None, token=None):
-    if token:
-        return {"Authorization": f"ApiToken {token}"}
+    if username and password:
+        auth_str = f"{username}:{password}"
+        auth_b64 = base64.b64encode(auth_str.encode()).decode()
+        headers = {"Authorization": f"Basic {auth_b64}"}
     else:
-        auth = f"{username}:{password}"
-        encoded = base64.b64encode(auth.encode()).decode("utf-8")
-        return {"Authorization": f"Basic {encoded}"}
+        headers = None
 
-@st.cache_data(show_spinner=False)
-def get_users(headers):
-    url = f"{DHIS2_URL}/api/users.json"
-    params = {
-        "paging": "false",
-        "fields": "id,username,name,organisationUnits[id,name],userCredentials[userRoles[name]]"
-    }
-    r = requests.get(url, headers=headers, params=params)
-    if r.status_code == 200:
-        return r.json().get("users", [])
-    else:
-        st.error("❌ Erreur lors de la récupération des utilisateurs.")
-        return []
+if headers:
+    try:
+        with st.spinner("🔄 Chargement des utilisateurs..."):
+            url = f"{DHIS2_URL}/api/users.json"
+            params = {
+                "paging": "false",
+                "fields": "id,username,name,email,organisationUnits[id,name],userCredentials[userRoles[name]]"
+            }
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+            response.raise_for_status()
+            users = response.json().get("users", [])
 
-if (username and password) or token:
-    headers = get_auth_header(username, password, token)
+            if not users:
+                st.warning("Aucun utilisateur trouvé.")
+            else:
+                df_users = pd.json_normalize(users)
 
-    if st.sidebar.button("📥 Charger tous les utilisateurs"):
-        users = get_users(headers)
-        if users:
-            rows = []
-            for user in users:
-                name = user.get("name")
-                username = user.get("username")
-                orgs = [ou["name"] for ou in user.get("organisationUnits", [])]
-                roles = [r["name"] for r in user.get("userCredentials", {}).get("userRoles", [])]
-                rows.append({
-                    "name": name,
-                    "username": username,
-                    "organisation": ", ".join(orgs),
-                    "roles": ", ".join(roles)
-                })
+                # Créer une colonne 'Doublon' basée sur les noms
+                df_users["doublon_nom"] = df_users.duplicated("name", keep=False).map({True: "Oui", False: "Non"})
 
-            df = pd.DataFrame(rows)
+                # Affichage du tableau
+                st.success(f"✅ {len(df_users)} utilisateur(s) trouvé(s).")
+                st.dataframe(df_users[["id", "username", "name", "email", "doublon_nom"]], use_container_width=True)
 
-            # Détection des doublons (par nom)
-            df["doublon"] = df.duplicated(subset="name", keep=False).apply(lambda x: "Oui" if x else "Non")
+                # Filtrer les doublons uniquement
+                df_doublons = df_users[df_users["doublon_nom"] == "Oui"]
+                if not df_doublons.empty:
+                    st.subheader("⚠️ Doublons détectés par nom")
+                    st.dataframe(df_doublons[["id", "username", "name", "email"]])
 
-            st.success(f"✅ {len(df)} utilisateurs trouvés (dont {df['doublon'].value_counts().get('Oui', 0)} doublons).")
-            st.dataframe(df, use_container_width=True)
+                    # Télécharger les doublons
+                    st.download_button(
+                        label="📥 Télécharger les doublons (CSV)",
+                        data=df_doublons.to_csv(index=False).encode(),
+                        file_name="doublons_utilisateurs.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("✅ Aucun doublon détecté.")
 
-            # Bouton de téléchargement
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "📄 Télécharger la liste complète (CSV)",
-                data=csv,
-                file_name="utilisateurs_dhis2_avec_doublons.csv",
-                mime="text/csv"
-            )
-        else:
-            st.warning("Aucun utilisateur récupéré.")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Erreur de connexion à DHIS2 : {e}")
 else:
-    st.warning("Veuillez fournir vos identifiants ou un token personnel.")
+    st.info("Veuillez entrer vos identifiants ou votre token personnel pour continuer.")
+
